@@ -1,98 +1,116 @@
+/* =========================================
+   IEF / Non-IEF Household Segmentation
+========================================= */
 
---groups giving and labels as IEF or Non-IEF by house hould ID
-drop table if exists #tempIEFAnn
-select hoh_id, sum(rv_amount) giving, initiative, rv_campyr
-into #tempIEFAnn 
-from (
-	select hoh_id, sum(rv_amount) rv_amount, rv_campyr,
-	case 
-     when FU_FUND in ('1144', '1145') then 'IEF' 
-     when rv_campyr in (2023,2024, 2025, 2026) then 'Non-IEF'
-	 end initiative
+-------------------------
+-- Base: Household Giving by Initiative + Year
+-------------------------
+DROP TABLE IF EXISTS #tempIEFAnn;
 
-from fr101.dbo.COMMRECV c
-join fr101.dbo.FUND f on c.RV_FUKEY = f.FU_KEY and c.RV_CAMP in ('A','AP') and (c.rv_campyr = 2023 or c.RV_CAMPYR = 2024 or RV_CAMPYR = 2025 or RV_CAMPYR = 2026)
-join UJADW.dbo.UDRT_30Yr_Trend_Analysis t on rv_id = id
-group by hoh_id, rv_id, FU_FUND, RV_CAMPYR, rv_camp) a
-group by hoh_id,  rv_campyr, initiative
+SELECT 
+    hoh_id,
+    rv_campyr,
+    CASE 
+        WHEN f.FU_FUND IN ('1144','1145') THEN 'IEF'
+        ELSE 'Non-IEF'
+    END AS initiative,
+    SUM(c.rv_amount) AS giving
+INTO #tempIEFAnn
+FROM fr101.dbo.COMMRECV c
+JOIN fr101.dbo.FUND f 
+    ON c.RV_FUKEY = f.FU_KEY
+JOIN UJADW.dbo.UDRT_30Yr_Trend_Analysis t 
+    ON c.rv_id = t.id
+WHERE c.RV_CAMP IN ('A','AP')
+  AND c.RV_CAMPYR IN (2023, 2024, 2025, 2026)
+GROUP BY 
+    hoh_id,
+    rv_campyr,
+    CASE 
+        WHEN f.FU_FUND IN ('1144','1145') THEN 'IEF'
+        ELSE 'Non-IEF'
+    END;
 
---calculates different year values and only keeps ones pertaining to our needs
-drop table if exists #tempHHtotals
-select t.HOH_ID
-    ,sum(case when t.initiative = 'Non-IEF' and t.RV_CAMPYR='2023'  then t.giving else 0 end) as '23HHAnn'
-    ,sum(case when t.initiative = 'IEF' and t.RV_CAMPYR='2024'  then t.giving else 0 end) as '24HHIEF'
-    ,sum(case when t.initiative = 'Non-IEF' and t.RV_CAMPYR='2024'  then t.giving else 0 end) as '24HHAnn'
-    ,sum(case when t.initiative = 'IEF' and t.RV_CAMPYR='2025'  then t.giving else 0 end) as '25HHIEF'
-    ,sum(case when t.initiative = 'Non-IEF' and t.RV_CAMPYR='2025'  then t.giving else 0 end) as '25HHAnn'
-    ,sum(case when t.initiative = 'IEF' and t.RV_CAMPYR='2026'  then t.giving else 0 end) as '26HHIEF'
-    ,sum(case when t.initiative = 'Non-IEF' and t.RV_CAMPYR='2026'  then t.giving else 0 end) as '26HHAnn'
-into #tempHHtotals
-from #tempIEFAnn t
-group by t.HOH_ID
+-------------------------
+-- Household Totals by Year + Initiative
+-------------------------
+DROP TABLE IF EXISTS #tempHHtotals;
+
+SELECT 
+    t.HOH_ID,
+
+    SUM(CASE WHEN t.initiative = 'Non-IEF' AND t.RV_CAMPYR = 2023 THEN t.giving ELSE 0 END) AS [23HHAnn],
+    SUM(CASE WHEN t.initiative = 'IEF'     AND t.RV_CAMPYR = 2024 THEN t.giving ELSE 0 END) AS [24HHIEF],
+    SUM(CASE WHEN t.initiative = 'Non-IEF' AND t.RV_CAMPYR = 2024 THEN t.giving ELSE 0 END) AS [24HHAnn],
+    SUM(CASE WHEN t.initiative = 'IEF'     AND t.RV_CAMPYR = 2025 THEN t.giving ELSE 0 END) AS [25HHIEF],
+    SUM(CASE WHEN t.initiative = 'Non-IEF' AND t.RV_CAMPYR = 2025 THEN t.giving ELSE 0 END) AS [25HHAnn],
+    SUM(CASE WHEN t.initiative = 'IEF'     AND t.RV_CAMPYR = 2026 THEN t.giving ELSE 0 END) AS [26HHIEF],
+    SUM(CASE WHEN t.initiative = 'Non-IEF' AND t.RV_CAMPYR = 2026 THEN t.giving ELSE 0 END) AS [26HHAnn]
+
+INTO #tempHHtotals
+FROM #tempIEFAnn t
+GROUP BY t.HOH_ID
 HAVING 
-   ( SUM(CASE WHEN t.initiative = 'Non-IEF' AND t.RV_CAMPYR = '2025' THEN t.giving ELSE 0 END) = 0
-    AND SUM(CASE WHEN t.initiative = 'Non-IEF' AND t.RV_CAMPYR = '2026' THEN t.giving ELSE 0 END) = 0
-    and sum(case when t.initiative = 'IEF' and t.RV_CAMPYR='2026'  then t.giving else 0 end)=0
-    and sum(case when t.initiative = 'IEF' and t.RV_CAMPYR='2025'  then t.giving else 0 end)=0
-    AND SUM(CASE WHEN t.initiative = 'IEF'     AND t.RV_CAMPYR = '2024' THEN t.giving ELSE 0 END) > 0)
-ORDER BY t.HOH_ID;
+    SUM(CASE WHEN t.initiative = 'Non-IEF' AND t.RV_CAMPYR = 2025 THEN t.giving ELSE 0 END) = 0
+AND SUM(CASE WHEN t.initiative = 'Non-IEF' AND t.RV_CAMPYR = 2026 THEN t.giving ELSE 0 END) = 0
+AND SUM(CASE WHEN t.initiative = 'IEF'     AND t.RV_CAMPYR = 2026 THEN t.giving ELSE 0 END) = 0
+AND SUM(CASE WHEN t.initiative = 'IEF'     AND t.RV_CAMPYR = 2025 THEN t.giving ELSE 0 END) = 0
+AND SUM(CASE WHEN t.initiative = 'IEF'     AND t.RV_CAMPYR = 2024 THEN t.giving ELSE 0 END) > 0;
 
---email table
-drop table if exists #tempemails
-select na_id, e.EE_Address, ROW_NUMBEr() over (partition by na_id order by ee_address) rn
-into #tempemails
-from 
-fr101.dbo.name n
-join fr101.dbo.email e on n.na_id = e.EE_ID and EE_Default = 1 --and EE_TYPE='B'
+-------------------------
+-- Email Table (Cleaner Selection)
+-------------------------
+DROP TABLE IF EXISTS #tempemails;
 
+SELECT 
+    n.na_id,
+    e.EE_Address,
+    ROW_NUMBER() OVER (
+        PARTITION BY n.na_id 
+        ORDER BY e.EE_Default DESC, e.EE_Address
+    ) AS rn
+INTO #tempemails
+FROM fr101.dbo.name n
+JOIN fr101.dbo.email e 
+    ON n.na_id = e.EE_ID
+WHERE e.EE_Default = 1;
 
---summation of donor info 2026,2025,2024 Ann and IEF and 2023, as well as donor features
-select a.*, isnull(e.EE_Address,'-No Email Address-') Email,
-h.[23HHANN],h.[24HHAnn], h.[24HHIEF]
-from 
-(SELECT [id]
-      ,a.[HOH_ID]
-      ,[Const_Div]
-      ,substring([Staff], 2, len([Staff]) - 2) as 'Fundraiser'
-      ,substring([Name], 2, len([Name]) - 2) as 'Name'
-      ,a.[Given_since_Year]
-      ,[Const_Node]
-      --,[Const_Node_Desc]
-  FROM [UJADW].[dbo].[UDRT_30Yr_Trend_Analysis] a
-join [UJADW].[dbo].[FR101_CommonReport_Name] crn on id = CRN_NA_ID and ltrim(rtrim(a.[Status])) like 'A%' 
-join fr101.dbo.NODES n on left(crn.CRN_NA_Node, 3) = n.ND_NODE 
-join fr101.dbo.name on crn.CRN_NA_ID = na_Id
-where IsStaff=0 and Role='IN'
+-------------------------
+-- Final Output
+-------------------------
+SELECT 
+    a.*,
+    ISNULL(e.EE_Address,'-No Email Address-') AS Email,
+    h.[23HHAnn],
+    h.[24HHAnn],
+    h.[24HHIEF]
+
+FROM (
+    SELECT 
+        a.[id],
+        a.[HOH_ID],
+        a.[Const_Div],
+        SUBSTRING(a.[Staff], 2, LEN(a.[Staff]) - 2) AS Fundraiser,
+        SUBSTRING(a.[Name], 2, LEN(a.[Name]) - 2) AS Name,
+        a.[Given_since_Year],
+        a.[Const_Node]
+    FROM UJADW.dbo.UDRT_30Yr_Trend_Analysis a
+    JOIN UJADW.dbo.FR101_CommonReport_Name crn 
+        ON a.id = crn.CRN_NA_ID 
+       AND LTRIM(RTRIM(a.[Status])) LIKE 'A%'
+    JOIN fr101.dbo.NODES n 
+        ON LEFT(crn.CRN_NA_Node, 3) = n.ND_NODE 
+    JOIN fr101.dbo.name nm 
+        ON crn.CRN_NA_ID = nm.na_id
+    WHERE a.IsStaff = 0 
+      AND nm.Role = 'IN'
 ) a
-left join #tempemails e on a.id = e.NA_ID and rn = 1
-join #tempHHtotals h on h.HOH_ID = a.HOH_ID 
---and a.id =1756 or a.HOH_ID=1756
---and a.CurrPr02Amt=0
---and a.id=235518
-order by a.HOH_ID
 
+LEFT JOIN #tempemails e 
+    ON a.id = e.na_id 
+   AND e.rn = 1
 
+JOIN #tempHHtotals h 
+    ON h.HOH_ID = a.HOH_ID
 
-
-/*select a1.*,t.[23HHAnn],t.[24HHAnn],t.[24HHIEF],t.[25HHAnn],t.[25HHIEF],t.[26HHAnn],t.[26HHIEF] from (
-SELECT  
-      a.[HOH_ID],
-     a.ID
-  FROM [UJADW].[dbo].[UDRT_30Yr_Trend_Analysis] a
-join [UJADW].[dbo].[FR101_CommonReport_Name] crn on id = CRN_NA_ID and ltrim(rtrim(a.[Status])) like 'A%' 
-join fr101.dbo.NODES n on left(crn.CRN_NA_Node, 3) = n.ND_NODE 
-join fr101.dbo.name on crn.CRN_NA_ID = na_Id
-where IsStaff=0 and Role='IN'
-group by a.HOH_ID, ID
-/*HAVING (
-        SUM(a.curAmt) = 0
-        AND SUM(a.CurrPr01Amt) = 0
-        AND SUM(a.CurrPr02Amt) > 0
-        )*/
-) a1
-left join #tempHHtotals t on t.HOH_ID=a1.HOH_ID
---where /*a1.id =1756 or*/ a1.HOH_ID=1756
-where t.[23HHAnn] is not null
-order by a1.HOH_ID*/
-
-
+ORDER BY a.HOH_ID;
